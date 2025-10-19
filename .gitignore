@@ -1,5 +1,5 @@
 # Environment variables
-.env
+.env/
 
 # Local database files (Corrected)
 db_*
@@ -10,3 +10,5 @@ plp/
 __pycache__/
 *.pyc
 
+#Old Files
+app-old.py
