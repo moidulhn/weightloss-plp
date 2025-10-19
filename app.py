@@ -1,5 +1,6 @@
 import streamlit as st
 from plp_engine import PLPSystem
+from plp_agent import create_agent_executor # Import the agent creator
 from config import LEARNING_QUESTIONS, FINAL_DISCLAIMER
 
 # --- UI CONFIGURATION ---
@@ -13,60 +14,76 @@ if 'completed_topics' not in st.session_state:
 if 'question_input' not in st.session_state:
     st.session_state.question_input = ""
 
-# --- LOAD THE PLP SYSTEM ---
+# --- LOAD THE SYSTEMS ---
 @st.cache_resource
 def load_plp_system():
     return PLPSystem()
 
+@st.cache_resource
+def load_agent_executor():
+    return create_agent_executor()
+
 plp = load_plp_system()
+agent_executor = load_agent_executor()
 
 # --- SIDEBAR FOR GUIDED LEARNING PATH ---
 st.sidebar.title("Your Learning Path")
 st.sidebar.write("Click a topic to explore it. Your progress will be saved for this session.")
 
 for topic in LEARNING_QUESTIONS:
-    # Determine the status icon based on completion
     status_icon = "✅" if topic in st.session_state.completed_topics else "⬜️"
-
-    # Create a button for each topic
     if st.sidebar.button(f"{status_icon} {topic}", use_container_width=True):
-        # When a button is clicked, update the main text input
         st.session_state.question_input = topic
-        # And mark the topic as completed
         if topic not in st.session_state.completed_topics:
             st.session_state.completed_topics.append(topic)
 
 # --- MAIN APP INTERFACE & USER INTERACTION ---
+use_reasoning_agent = st.checkbox("Enable Reasoning Agent (Bonus Feature)")
+
 question = st.text_input(
     "Ask your question:",
     placeholder="Select a topic from the sidebar or type your own question...",
-    key="question_input" # This key links the text box to the sidebar buttons
+    key="question_input"
 )
 
 if st.button("Get Answer"):
     if question:
-        # Mark the topic as completed if a custom question is asked that matches a learning question
         if question in LEARNING_QUESTIONS and question not in st.session_state.completed_topics:
             st.session_state.completed_topics.append(question)
-            st.rerun() # Rerun to update the sidebar icon immediately
+            st.rerun()
 
         with st.spinner("Thinking..."):
-            response = plp.ask(question)
+            answer = ""
+            sources_to_display = []
             
+            if use_reasoning_agent:
+                st.info("Using Reasoning Agent...")
+                response = agent_executor.invoke({"input": question})
+                answer = response.get("output", "I could not find an answer.")
+            else:
+                st.info("Using Standard RAG...")
+                response = plp.ask(question)
+                answer = response.get("answer", "I could not find an answer.")
+                if "context" in response:
+                    for doc in response["context"]:
+                        source_file = doc.metadata.get('source', 'Unknown').split('/')[-1]
+                        page = doc.metadata.get('page', 'N/A')
+                        source_info = f"- **{source_file}** (Page: {page})"
+                        if source_info not in sources_to_display:
+                            sources_to_display.append(source_info)
+            
+            # --- Display the results ---
             st.subheader("Answer:")
-            st.write(response["answer"])
+            st.write(answer)
             st.write(FINAL_DISCLAIMER)
             
-            if "context" in response:
+            if sources_to_display:
                 st.subheader("Sources Used:")
-                sources = []
-                for doc in response["context"]:
-                    source_file = doc.metadata.get('source', 'Unknown').split('/')[-1]
-                    page = doc.metadata.get('page', 'N/A')
-                    source_info = f"- **{source_file}** (Page: {page})"
-                    if source_info not in sources:
-                        sources.append(source_info)
-                for source in sources:
+                for source in sources_to_display:
                     st.write(source)
+            elif use_reasoning_agent:
+                st.subheader("Sources Used:")
+                st.write("The agent accessed the 'Weight_Loss_Science_Knowledge_Base' tool to formulate its answer. The detailed thought process and source access are visible in the terminal logs.")
+
     else:
         st.warning("Please enter a question.")

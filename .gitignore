@@ -1,5 +1,5 @@
 # Environment variables
-.env/
+.env
 
 # Local database files (Corrected)
 db_*
